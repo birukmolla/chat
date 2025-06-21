@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Chat (Firebase)</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f2f5;
+        }
+        .message-bubble-self {
+            background-color: #0084ff;
+            color: white;
+            border-bottom-right-radius: 0;
+        }
+        .message-bubble-other {
+            background-color: #e4e6eb;
+            color: #333;
+            border-bottom-left-radius: 0;
+        }
+        /* Custom scrollbar styles */
+        .chat-messages::-webkit-scrollbar {
+            width: 8px;
+        }
+        .chat-messages::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+        .chat-messages::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 10px;
+        }
+        .chat-messages::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        .modal {
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: auto;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            width: 90%;
+            max-width: 500px;
+        }
+        .close-button {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+        }
+        .close-button:hover,
+        .close-button:focus {
+            color: black;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        .system-message {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+            padding: 8px;
+            border-radius: 8px;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        .error-message {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            padding: 8px;
+            border-radius: 8px;
+            text-align: center;
+            margin-top: 10px;
+            position: absolute; /* Position relative to chat-area parent */
+            bottom: 60px; /* Adjust based on message input height */
+            left: 50%;
+            transform: translateX(-50%);
+            width: calc(100% - 32px); /* Full width minus padding */
+            box-sizing: border-box;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen">
+    <div id="loading-spinner" class="hidden flex flex-col items-center justify-center">
+        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mb-4"></div>
+        <p class="text-gray-700 text-lg">Loading application...</p>
+    </div>
+
+    <!-- Login/Signup Form -->
+    <div id="auth-section" class="bg-white p-8 rounded-lg shadow-xl w-full max-w-md hidden">
+        <h2 id="auth-title" class="text-3xl font-bold text-center mb-6 text-gray-800">Login</h2>
+        <form id="auth-form">
+            <div class="mb-4">
+                <label for="email" class="block text-gray-700 text-sm font-medium mb-2">Email</label>
+                <input type="email" id="email" class="shadow-sm appearance-none border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200" placeholder="your@example.com" required>
+            </div>
+            <div class="mb-6">
+                <label for="password" class="block text-gray-700 text-sm font-medium mb-2">Password</label>
+                <input type="password" id="password" class="shadow-sm appearance-none border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200" placeholder="********" required>
+            </div>
+            <div id="auth-error-message" class="text-red-600 text-sm mb-4 hidden"></div>
+            <button type="submit" id="auth-button" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg w-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-75 transition duration-200 ease-in-out transform hover:scale-105">Login</button>
+        </form>
+        <p class="text-center text-gray-600 text-sm mt-4">
+            <span id="toggle-auth-text">Don't have an account?</span>
+            <button id="toggle-auth-mode" class="text-blue-600 hover:text-blue-800 font-semibold ml-1 focus:outline-none">Sign Up</button>
+        </p>
+    </div>
+
+    <!-- Chat Application -->
+    <div id="chat-section" class="bg-white rounded-lg shadow-xl w-full max-w-4xl h-[90vh] flex overflow-hidden hidden">
+        <!-- User List (left pane) -->
+        <div class="w-1/4 bg-gray-100 border-r border-gray-200 flex flex-col">
+            <div class="p-4 border-b border-gray-200 flex items-center justify-between">
+                <h3 class="text-xl font-semibold text-gray-800">Users</h3>
+                <button id="logout-button" class="bg-red-500 hover:bg-red-600 text-white text-sm py-1 px-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-400 transition duration-200 ease-in-out">Logout</button>
+            </div>
+            <div id="user-list" class="flex-grow overflow-y-auto p-3">
+                <!-- User items will be dynamically loaded here -->
+                <p class="text-gray-500 text-sm text-center mt-4">No other users online yet.</p>
+            </div>
+            <div class="p-4 border-t border-gray-200 text-center text-gray-600 text-sm">
+                Logged in as: <span id="current-user-email" class="font-medium"></span>
+                <br>User ID: <span id="current-user-id" class="font-medium text-xs break-all"></span>
+            </div>
+        </div>
+
+        <!-- Chat Area (right pane) -->
+        <div class="w-3/4 flex flex-col relative"> <!-- Added relative for error message positioning -->
+            <div class="p-4 border-b border-gray-200 flex justify-between items-center">
+                <h3 class="text-xl font-semibold text-gray-800">Public Chat</h3>
+                <div class="flex space-x-2">
+                    <button id="summarize-chat-button" class="bg-purple-600 hover:bg-purple-700 text-white text-sm py-2 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 transition duration-200 ease-in-out transform hover:scale-105">✨ Summarize Chat</button>
+                    <button id="draft-message-button" class="bg-green-600 hover:bg-green-700 text-white text-sm py-2 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 transition duration-200 ease-in-out transform hover:scale-105">✨ Draft Message</button>
+                </div>
+            </div>
+            <div id="chat-messages" class="chat-messages flex-grow overflow-y-auto p-4 space-y-4">
+                <!-- Messages will be dynamically loaded here -->
+            </div>
+            <div id="chat-error-notification" class="error-message hidden"></div> <!-- Error notification area -->
+            <div class="p-4 border-t border-gray-200 flex items-center">
+                <input type="text" id="message-input" class="flex-grow shadow-sm appearance-none border rounded-lg py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200" placeholder="Type your message...">
+                <button type="submit" id="send-message-button" class="ml-3 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-75 transition duration-200 ease-in-out transform hover:scale-105">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Draft Message Modal -->
+    <div id="draft-message-modal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-button" id="close-draft-modal">&times;</span>
+            <h3 class="text-2xl font-bold mb-4 text-gray-800">Draft a Message ✨</h3>
+            <div class="mb-4">
+                <label for="draft-prompt-input" class="block text-gray-700 text-sm font-medium mb-2">What topic should the message be about?</label>
+                <input type="text" id="draft-prompt-input" class="shadow-sm appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200" placeholder="e.g., 'weekend plans', 'team update'">
+            </div>
+            <button id="generate-draft-button" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg w-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-75 transition duration-200 ease-in-out transform hover:scale-105">Generate Draft</button>
+            <div id="draft-loading-spinner" class="hidden flex justify-center mt-4">
+                <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+            </div>
+            <div id="generated-draft-output" class="bg-gray-100 p-3 rounded-lg mt-4 max-h-48 overflow-y-auto text-gray-800 text-sm border border-gray-200 hidden">
+                <!-- Generated draft will appear here -->
+            </div>
+            <div id="draft-error-message" class="text-red-600 text-sm mt-2 hidden"></div>
+            <button id="send-generated-draft-button" class="mt-4 bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg w-full focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-75 transition duration-200 ease-in-out transform hover:scale-105 hidden">Send Draft to Chat</button>
+        </div>
+    </div>
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        // Firebase imports from CDN
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, addDoc, setDoc, onSnapshot, collection, query, orderBy, serverTimestamp, limit } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-analytics.js";
+
+        // Manually provided Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyCS2vAutmQMC9iI72UXkjTJpTBnaf6B_m4",
+            authDomain: "chat-app-c7d23.firebaseapp.com",
+            projectId: "chat-app-c7d23",
+            storageBucket: "chat-app-c7d23.firebasestorage.app",
+            messagingSenderId: "391224761393",
+            appId: "1:391224761393:web:79b3de2d90813030164910",
+            measurementId: "G-XQKWP4BBKQ"
+        };
+
+        // Global Firebase variables (initialized later)
+        let app, db, auth;
+        let userId = null;
+        let currentUserEmail = null;
+        let unsubscribeMessages = null; // To store unsubscribe function for messages
+        let unsubscribeUsers = null;    // To store unsubscribe function for users
+        let recentChatMessages = []; // To store recent messages for summarization
+
+        // UI Elements
+        const authSection = document.getElementById('auth-section');
+        const chatSection = document.getElementById('chat-section');
+        const loadingSpinner = document.getElementById('loading-spinner');
+        const authForm = document.getElementById('auth-form');
+        const authTitle = document.getElementById('auth-title');
+        const authButton = document.getElementById('auth-button');
+        const toggleAuthModeButton = document.getElementById('toggle-auth-mode');
+        const toggleAuthText = document.getElementById('toggle-auth-text');
+        const authErrorMessage = document.getElementById('auth-error-message');
+        const emailInput = document.getElementById('email');
+        const passwordInput = document.getElementById('password');
+        const logoutButton = document.getElementById('logout-button');
+        const currentUserEmailSpan = document.getElementById('current-user-email');
+        const currentUserIdSpan = document.getElementById('current-user-id');
+        const messageInput = document.getElementById('message-input');
+        const sendMessageButton = document.getElementById('send-message-button');
+        const chatMessages = document.getElementById('chat-messages');
+        const userList = document.getElementById('user-list');
+        const chatErrorNotification = document.getElementById('chat-error-notification'); // New error display element
+
+        // Gemini API related elements
+        const summarizeChatButton = document.getElementById('summarize-chat-button');
+        const draftMessageButton = document.getElementById('draft-message-button');
+        const draftMessageModal = document.getElementById('draft-message-modal');
+        const closeDraftModalButton = document.getElementById('close-draft-modal');
+        const draftPromptInput = document.getElementById('draft-prompt-input');
+        const generateDraftButton = document.getElementById('generate-draft-button');
+        const draftLoadingSpinner = document.getElementById('draft-loading-spinner');
+        const generatedDraftOutput = document.getElementById('generated-draft-output');
+        const draftErrorMessage = document.getElementById('draft-error-message');
+        const sendGeneratedDraftButton = document.getElementById('send-generated-draft-button');
+
+        let isLoginMode = true; // State to track login or signup mode
+
+        // Helper function to display temporary messages
+        function showTempNotification(message, isError = false) {
+            chatErrorNotification.textContent = message;
+            chatErrorNotification.classList.remove('hidden');
+            if (isError) {
+                chatErrorNotification.classList.remove('system-message');
+                chatErrorNotification.classList.add('error-message');
+            } else {
+                chatErrorNotification.classList.remove('error-message');
+                chatErrorNotification.classList.add('system-message');
+            }
+            // Clear any previous timeouts to ensure the new message is visible for its full duration
+            if (chatErrorNotification.timeoutId) {
+                clearTimeout(chatErrorNotification.timeoutId);
+            }
+            chatErrorNotification.timeoutId = setTimeout(() => {
+                chatErrorNotification.classList.add('hidden');
+                chatErrorNotification.timeoutId = null; // Clear the stored ID
+            }, 5000); // Hide after 5 seconds
+        }
+
+        // Initialize Firebase
+        function initializeFirebase() {
+            console.log("Initializing Firebase...");
+            try {
+                app = initializeApp(firebaseConfig);
+                getAnalytics(app);
+
+                db = getFirestore(app);
+                auth = getAuth(app);
+                console.log("Firebase app, db, auth initialized with provided config.");
+                console.log("Firebase client is now online."); // Indicate successful Firebase SDK initialization
+
+                onAuthStateChanged(auth, async (user) => {
+                    console.log("Auth state changed. Current user:", user ? user.uid : "None");
+                    loadingSpinner.classList.add('hidden');
+                    if (user && user.email) {
+                        userId = user.uid;
+                        currentUserEmail = user.email;
+                        currentUserEmailSpan.textContent = currentUserEmail;
+                        currentUserIdSpan.textContent = userId;
+                        showChatSection();
+                        console.log(`User ${userId} (${currentUserEmail}) is logged in.`);
+
+                        const dynamicAppId = firebaseConfig.projectId;
+                        const userRef = doc(db, `artifacts/${dynamicAppId}/public/data/users`, userId);
+                        try {
+                            const userSnap = await getDoc(userRef);
+                            if (!userSnap.exists()) {
+                                console.log(`User ${userId} not in Firestore, adding...`);
+                                await setDoc(userRef, {
+                                    email: currentUserEmail,
+                                    uid: userId,
+                                    createdAt: serverTimestamp()
+                                });
+                                console.log(`User ${userId} added to Firestore.`);
+                            } else {
+                                console.log(`User ${userId} already exists in Firestore.`);
+                            }
+                        } catch (firestoreError) {
+                            console.error("Error checking/adding user to Firestore:", firestoreError);
+                            let errorMessage = `Failed to update user profile: ${firestoreError.message}`;
+                            if (firestoreError.code === 'unavailable' || firestoreError.code === 'internal') {
+                                errorMessage = "Network issue or Firestore service unavailable. Please check your internet connection.";
+                            } else if (firestoreError.code === 'permission-denied') {
+                                errorMessage = "Access denied to user data. Check Firebase Security Rules for 'users' collection.";
+                            }
+                            showTempNotification(errorMessage, true);
+                        }
+
+                        setupChatListeners(dynamicAppId);
+                        setupUserListListener(dynamicAppId);
+
+                    } else {
+                        console.log("No authenticated email user. Showing auth section.");
+                        userId = null;
+                        currentUserEmail = null;
+                        if (unsubscribeMessages) {
+                            unsubscribeMessages();
+                            unsubscribeMessages = null;
+                            console.log("Unsubscribed from message listener.");
+                        }
+                        if (unsubscribeUsers) {
+                            unsubscribeUsers();
+                            unsubscribeUsers = null;
+                            console.log("Unsubscribed from user listener.");
+                        }
+                        recentChatMessages = [];
+                        showAuthSection();
+                    }
+                });
+
+                if (!auth.currentUser) {
+                    console.log("No current user, showing auth section directly.");
+                    showAuthSection();
+                }
+
+            } catch (e) {
+                console.error("Critical error initializing Firebase:", e);
+                authSection.classList.remove('hidden');
+                authErrorMessage.textContent = 'Failed to initialize application. Please try again later.';
+                authErrorMessage.classList.remove('hidden');
+                loadingSpinner.classList.add('hidden');
+            }
+        }
+
+        // --- UI State Management ---
+        function showLoadingSpinner() {
+            loadingSpinner.classList.remove('hidden');
+            authSection.classList.add('hidden');
+            chatSection.classList.add('hidden');
+        }
+
+        function showAuthSection() {
+            authSection.classList.remove('hidden');
+            chatSection.classList.add('hidden');
+            loadingSpinner.classList.add('hidden');
+            authErrorMessage.classList.add('hidden');
+            emailInput.value = '';
+            passwordInput.value = '';
+        }
+
+        function showChatSection() {
+            authSection.classList.add('hidden');
+            chatSection.classList.remove('hidden');
+            loadingSpinner.classList.add('hidden');
+        }
+
+        // --- Authentication Handlers ---
+        authForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = emailInput.value;
+            const password = passwordInput.value;
+            authErrorMessage.classList.add('hidden');
+            authButton.disabled = true; // Disable button during auth attempt
+            const originalAuthButtonText = authButton.textContent;
+            authButton.textContent = 'Processing...';
+
+            console.log(`Auth form submitted. Mode: ${isLoginMode ? 'Login' : 'Signup'}, Email: ${email}`);
+
+            if (isLoginMode) {
+                try {
+                    await signInWithEmailAndPassword(auth, email, password);
+                    console.log("signInWithEmailAndPassword successful (awaiting onAuthStateChanged).");
+                } catch (error) {
+                    console.error("Login error:", error);
+                    let errorMessage = "Login failed. Please check your credentials.";
+                    if (error.code === 'auth/user-not-found') {
+                        errorMessage = "No user found with this email. Please sign up.";
+                    } else if (error.code === 'auth/wrong-password') {
+                        errorMessage = "Incorrect password.";
+                    } else if (error.code === 'auth/invalid-email') {
+                        errorMessage = "Invalid email format.";
+                    } else if (error.code === 'auth/too-many-requests') {
+                        errorMessage = "Too many login attempts. Please try again later.";
+                    }
+                    authErrorMessage.textContent = errorMessage;
+                    authErrorMessage.classList.remove('hidden');
+                } finally {
+                    authButton.disabled = false;
+                    authButton.textContent = originalAuthButtonText;
+                }
+            } else {
+                try {
+                    await createUserWithEmailAndPassword(auth, email, password);
+                    console.log("createUserWithEmailAndPassword successful (awaiting onAuthStateChanged).");
+                } catch (error) {
+                    console.error("Signup error:", error);
+                    let errorMessage = "Signup failed. Please try again.";
+                    if (error.code === 'auth/email-already-in-use') {
+                        errorMessage = "This email is already in use. Please log in.";
+                    } else if (error.code === 'auth/weak-password') {
+                        errorMessage = "Password is too weak (min 6 characters).";
+                    } else if (error.code === 'auth/invalid-email') {
+                        errorMessage = "Invalid email format.";
+                    }
+                    authErrorMessage.textContent = errorMessage;
+                    authErrorMessage.classList.remove('hidden');
+                } finally {
+                    authButton.disabled = false;
+                    authButton.textContent = originalAuthButtonText;
+                }
+            }
+        });
+
+        toggleAuthModeButton.addEventListener('click', () => {
+            isLoginMode = !isLoginMode;
+            if (isLoginMode) {
+                authTitle.textContent = 'Login';
+                authButton.textContent = 'Login';
+                toggleAuthText.textContent = "Don't have an account?";
+                toggleAuthModeButton.textContent = 'Sign Up';
+            } else {
+                authTitle.textContent = 'Sign Up';
+                authButton.textContent = 'Sign Up';
+                toggleAuthText.textContent = "Already have an account?";
+                toggleAuthModeButton.textContent = 'Login';
+            }
+            authErrorMessage.classList.add('hidden');
+            emailInput.value = '';
+            passwordInput.value = '';
+            console.log(`Switched to ${isLoginMode ? 'Login' : 'Signup'} mode.`);
+        });
+
+        logoutButton.addEventListener('click', async () => {
+            console.log("Logout button clicked.");
+            try {
+                await signOut(auth);
+                console.log("User signed out.");
+            } catch (error) {
+                console.error("Logout error:", error);
+                showTempNotification(`Logout failed: ${error.message}`, true);
+            }
+        });
+
+        // --- Chat Functionality ---
+        sendMessageButton.addEventListener('click', async () => {
+            const messageText = messageInput.value.trim();
+            console.log(`Send message button clicked. Message: "${messageText}", UserID: ${userId}, Email: ${currentUserEmail}`);
+
+            if (!messageText) {
+                showTempNotification("Message cannot be empty.", false); // Use neutral message for empty input
+                return;
+            }
+            if (!userId || !currentUserEmail) {
+                showTempNotification("Please log in to send messages.", true);
+                return;
+            }
+
+            sendMessageButton.disabled = true; // Disable button
+            const originalSendButtonText = sendMessageButton.textContent;
+            sendMessageButton.textContent = 'Sending...';
+
+            const dynamicAppId = firebaseConfig.projectId;
+            try {
+                // Log the full path being attempted for debugging
+                const collectionPath = `artifacts/${dynamicAppId}/public/data/messages`;
+                console.log(`Firestore path for messages: ${collectionPath}`);
+
+                console.log("Attempting to add message to Firestore...");
+                await addDoc(collection(db, collectionPath), {
+                    senderId: userId,
+                    senderEmail: currentUserEmail,
+                    text: messageText,
+                    timestamp: serverTimestamp()
+                });
+                messageInput.value = '';
+                console.log("Message sent successfully!");
+                showTempNotification("Message sent!", false);
+            } catch (error) {
+                console.error("Error sending message to Firestore:", error);
+                let displayError = "Failed to send message. Please check your internet connection.";
+                if (error.code === 'permission-denied') {
+                    displayError = "Failed to send message: Permission denied. Check Firebase Security Rules for 'messages' collection.";
+                } else if (error.code === 'unavailable' || error.code === 'internal') {
+                    displayError = "Network issue or Firestore service unavailable. Please check your internet connection.";
+                }
+                showTempNotification(displayError, true);
+            } finally {
+                sendMessageButton.disabled = false; // Re-enable button
+                sendMessageButton.textContent = originalSendButtonText;
+            }
+        });
+
+        // Allow sending message with Enter key
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                sendMessageButton.click();
+            }
+        });
+
+        function displayMessage(message, append = true) {
+            const messageDiv = document.createElement('div');
+            messageDiv.classList.add('flex', 'mb-2');
+
+            const isSelf = message.senderId === userId;
+            if (isSelf) {
+                messageDiv.classList.add('justify-end');
+            } else {
+                messageDiv.classList.add('justify-start');
+            }
+
+            const bubbleDiv = document.createElement('div');
+            bubbleDiv.classList.add(
+                'rounded-xl', 'py-2', 'px-4', 'max-w-[70%]', 'break-words', 'shadow-sm',
+                isSelf ? 'message-bubble-self' : 'message-bubble-other'
+            );
+
+            const senderSpan = document.createElement('span');
+            senderSpan.classList.add('block', 'text-xs', 'font-semibold', 'opacity-80', 'mb-1',
+                isSelf ? 'text-right' : 'text-left');
+            senderSpan.textContent = isSelf ? 'You' : (message.senderEmail ? message.senderEmail.split('@')[0] : 'Unknown');
+
+            const textP = document.createElement('p');
+            textP.classList.add('text-sm');
+            textP.textContent = message.text;
+
+            const timestampSpan = document.createElement('span');
+            timestampSpan.classList.add('block', 'text-[0.6rem]', 'opacity-60', 'mt-1',
+                isSelf ? 'text-right' : 'text-left');
+            if (message.timestamp && message.timestamp.toDate) {
+                timestampSpan.textContent = message.timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            } else if (message.timestamp && message.timestamp.seconds) {
+                const date = new Date(message.timestamp.seconds * 1000 + message.timestamp.nanoseconds / 1000000);
+                timestampSpan.textContent = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            } else {
+                timestampSpan.textContent = 'Sending...';
+            }
+
+            bubbleDiv.appendChild(senderSpan);
+            bubbleDiv.appendChild(textP);
+            bubbleDiv.appendChild(timestampSpan);
+            messageDiv.appendChild(bubbleDiv);
+
+            if (append) {
+                chatMessages.appendChild(messageDiv);
+            } else {
+                chatMessages.prepend(messageDiv);
+            }
+        }
+
+        function setupChatListeners(dynamicAppId) {
+            console.log("Setting up chat listeners...");
+            if (unsubscribeMessages) {
+                unsubscribeMessages();
+                console.log("Unsubscribed from previous message listener.");
+            }
+
+            const messagesCollectionRef = collection(db, `artifacts/${dynamicAppId}/public/data/messages`);
+            const q = query(messagesCollectionRef, orderBy('timestamp', 'asc'), limit(50));
+
+            chatMessages.innerHTML = '';
+            recentChatMessages = [];
+
+            unsubscribeMessages = onSnapshot(q, (snapshot) => {
+                snapshot.docChanges().forEach((change) => {
+                    const messageData = change.doc.data();
+                    if (change.type === "added") {
+                        displayMessage(messageData);
+                        chatMessages.scrollTop = chatMessages.scrollHeight;
+                        recentChatMessages.push(messageData);
+                        if (recentChatMessages.length > 50) {
+                            recentChatMessages.shift();
+                        }
+                    }
+                });
+                console.log(`Messages updated. Total recent messages: ${recentChatMessages.length}`);
+            }, (error) => {
+                console.error("Error listening to messages:", error);
+                showTempNotification("Error fetching messages. Please check console for details and Firebase Security Rules.", true);
+            });
+        }
+
+        function setupUserListListener(dynamicAppId) {
+            console.log("Setting up user list listener...");
+            if (unsubscribeUsers) {
+                unsubscribeUsers();
+                console.log("Unsubscribed from previous user listener.");
+            }
+
+            const usersCollectionRef = collection(db, `artifacts/${dynamicAppId}/public/data/users`);
+            userList.innerHTML = '<p class="text-gray-500 text-sm text-center mt-4">No other users online yet.</p>';
+
+            unsubscribeUsers = onSnapshot(usersCollectionRef, (snapshot) => {
+                userList.innerHTML = '';
+                let usersFound = false;
+                snapshot.forEach((doc) => {
+                    const userData = doc.data();
+                    if (userData.uid && userId && userData.uid !== userId) {
+                        usersFound = true;
+                        const userDiv = document.createElement('div');
+                        userDiv.classList.add('flex', 'items-center', 'p-2', 'rounded-lg', 'hover:bg-gray-200', 'cursor-pointer', 'transition', 'duration-150');
+                        userDiv.innerHTML = `
+                            <div class="w-8 h-8 bg-blue-400 rounded-full flex items-center justify-center text-white font-bold text-sm mr-3">
+                                ${userData.email ? userData.email[0].toUpperCase() : 'U'}
+                            </div>
+                            <div>
+                                <p class="font-medium text-gray-800">${userData.email ? userData.email.split('@')[0] : 'Anonymous User'}</p>
+                                <p class="text-xs text-gray-500">${userData.email}</p>
+                            </div>
+                        `;
+                        userList.appendChild(userDiv);
+                    }
+                });
+                if (!usersFound) {
+                    userList.innerHTML = '<p class="text-gray-500 text-sm text-center mt-4">No other users online yet.</p>';
+                }
+                console.log(`User list updated. Total users found (excluding self): ${snapshot.docs.length - (userId ? 1 : 0)}`);
+            }, (error) => {
+                console.error("Error listening to users:", error);
+                showTempNotification("Error fetching user list. Please check console for details and Firebase Security Rules.", true);
+            });
+        }
+
+        // --- Gemini API Integrations ---
+        async function callGeminiAPI(promptText) {
+            console.log("Calling Gemini API with prompt:", promptText);
+            try {
+                const chatHistory = [];
+                chatHistory.push({ role: "user", parts: [{ text: promptText }] });
+                const payload = { contents: chatHistory };
+                const apiKey = "";
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const errorBody = await response.json();
+                    console.error("Gemini API error response:", errorBody);
+                    throw new Error(`Gemini API request failed: ${response.status} ${response.statusText} - ${JSON.stringify(errorBody)}`);
+                }
+
+                const result = await response.json();
+                console.log("Gemini API raw response:", result);
+
+                if (result.candidates && result.candidates.length > 0 &&
+                    result.candidates[0].content && result.candidates[0].content.parts &&
+                    result.candidates[0].content.parts.length > 0) {
+                    return result.candidates[0].content.parts[0].text;
+                } else {
+                    console.warn("Gemini API response structure unexpected, no candidates found:", result);
+                    return null;
+                }
+            } catch (error) {
+                console.error("Error calling Gemini API:", error);
+                showTempNotification("Failed to connect to AI service or retrieve response. Check console for details.", true);
+                return null;
+            }
+        }
+
+        summarizeChatButton.addEventListener('click', async () => {
+            console.log("Summarize chat button clicked.");
+            if (!recentChatMessages.length) {
+                showTempNotification("No messages to summarize yet!", false);
+                return;
+            }
+            if (!userId) {
+                showTempNotification("Please log in to summarize chat.", true);
+                return;
+            }
+
+            let chatTranscript = recentChatMessages.map(msg => {
+                const sender = msg.senderEmail ? msg.senderEmail.split('@')[0] : 'Unknown';
+                const time = msg.timestamp && msg.timestamp.toDate ? msg.timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'unknown time';
+                return `${sender} (${time}): ${msg.text}`;
+            }).join('\n');
+
+            const prompt = `Summarize the following chat transcript concisely, highlighting main topics and key points. If there are no substantial conversations, state that.
+            \n--- Transcript ---\n${chatTranscript}`;
+
+            summarizeChatButton.disabled = true;
+            const originalButtonText = summarizeChatButton.textContent;
+            summarizeChatButton.textContent = 'Summarizing...';
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+
+            try {
+                const summary = await callGeminiAPI(prompt);
+                if (summary) {
+                    const dynamicAppId = firebaseConfig.projectId;
+                    console.log("Summary generated, adding to chat:", summary);
+                    await addDoc(collection(db, `artifacts/${dynamicAppId}/public/data/messages`), {
+                        senderId: 'gemini-summary',
+                        senderEmail: 'Gemini AI',
+                        text: `✨ Chat Summary: ${summary}`,
+                        timestamp: serverTimestamp()
+                    });
+                    showTempNotification("Chat summarized successfully!", false);
+                } else {
+                    showTempNotification("Could not generate summary. AI returned no text.", true);
+                }
+            } catch (error) {
+                console.error("Error during chat summarization:", error);
+                showTempNotification("An error occurred while summarizing the chat. Check console.", true);
+            } finally {
+                summarizeChatButton.disabled = false;
+                summarizeChatButton.textContent = originalButtonText;
+            }
+        });
+
+        draftMessageButton.addEventListener('click', () => {
+            console.log("Draft message button clicked.");
+            if (!userId || !currentUserEmail) {
+                showTempNotification("Please log in to draft messages.", true);
+                return;
+            }
+            draftMessageModal.classList.remove('hidden');
+            draftPromptInput.value = '';
+            generatedDraftOutput.textContent = '';
+            generatedDraftOutput.classList.add('hidden');
+            draftErrorMessage.classList.add('hidden');
+            sendGeneratedDraftButton.classList.add('hidden');
+        });
+
+        closeDraftModalButton.addEventListener('click', () => {
+            console.log("Close draft modal button clicked.");
+            draftMessageModal.classList.add('hidden');
+        });
+
+        generateDraftButton.addEventListener('click', async () => {
+            const topic = draftPromptInput.value.trim();
+            console.log("Generate draft button clicked. Topic:", topic);
+            if (!topic) {
+                draftErrorMessage.textContent = "Please enter a topic for your message.";
+                draftErrorMessage.classList.remove('hidden');
+                return;
+            }
+
+            draftLoadingSpinner.classList.remove('hidden');
+            generateDraftButton.disabled = true;
+            const originalGenerateText = generateDraftButton.textContent;
+            generateDraftButton.textContent = 'Generating...';
+            generatedDraftOutput.classList.add('hidden');
+            draftErrorMessage.classList.add('hidden');
+            sendGeneratedDraftButton.classList.add('hidden');
+
+
+            const prompt = `Draft a concise chat message about "${topic}" suitable for a public chat. Keep it under 100 words.`;
+
+            try {
+                const draft = await callGeminiAPI(prompt);
+                if (draft) {
+                    generatedDraftOutput.textContent = draft;
+                    generatedDraftOutput.classList.remove('hidden');
+                    sendGeneratedDraftButton.classList.remove('hidden');
+                    console.log("Message draft generated:", draft);
+                } else {
+                    draftErrorMessage.textContent = "Could not generate draft. Gemini API returned no text.";
+                    draftErrorMessage.classList.remove('hidden');
+                }
+            } catch (error) {
+                console.error("Error generating message draft:", error);
+                draftErrorMessage.textContent = "An error occurred while generating the draft. Check console.";
+                draftErrorMessage.classList.remove('hidden');
+            } finally {
+                draftLoadingSpinner.classList.add('hidden');
+                generateDraftButton.disabled = false;
+                generateDraftButton.textContent = originalGenerateText;
+            }
+        });
+
+        sendGeneratedDraftButton.addEventListener('click', async () => {
+            const draftText = generatedDraftOutput.textContent.trim();
+            console.log("Send generated draft button clicked. Draft text:", draftText);
+            if (draftText && userId && currentUserEmail) {
+                const dynamicAppId = firebaseConfig.projectId;
+                try {
+                    console.log("Attempting to send drafted message to Firestore...");
+                    await addDoc(collection(db, `artifacts/${dynamicAppId}/public/data/messages`), {
+                        senderId: userId,
+                        senderEmail: currentUserEmail,
+                        text: draftText,
+                        timestamp: serverTimestamp()
+                    });
+                    draftMessageModal.classList.add('hidden');
+                    messageInput.value = '';
+                    showTempNotification("Drafted message sent!", false);
+                    console.log("Drafted message sent successfully!");
+                } catch (error) {
+                    console.error("Error sending drafted message to Firestore:", error);
+                    let displayError = "Failed to send drafted message. Please check internet connection/permissions.";
+                    if (error.code === 'permission-denied') {
+                        displayError = "Failed to send drafted message: Permission denied. Check Firebase Security Rules for 'messages' collection.";
+                    } else if (error.code === 'unavailable' || error.code === 'internal') {
+                        displayError = "Network issue or Firestore service unavailable. Please check your internet connection.";
+                    }
+                    showTempNotification(displayError, true);
+                }
+            } else {
+                console.warn("Cannot send drafted message: Draft text empty, or user not logged in.");
+                showTempNotification("Draft message is empty or you are not logged in.", true);
+            }
+        });
+
+        // Initialize on window load
+        window.onload = function() {
+            showLoadingSpinner();
+            initializeFirebase();
+        };
+
+    </script>
+</body>
+</html>
