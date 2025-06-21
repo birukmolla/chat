@@ -295,9 +295,9 @@
         import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, orderBy, serverTimestamp, limit } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-analytics.js";
 
-        // Manually provided Firebase configuration
-        const firebaseConfig = {
-            apiKey: "AIzaSyCS2vAutmQMC9iI72UXkjTJpTBnaf6B_m4",
+        // Manually provided Firebase configuration (fallback for local development outside Canvas)
+        const defaultFirebaseConfig = {
+            apiKey: "YOUR_FALLBACK_API_KEY", // Replace with your actual Firebase API Key for local testing outside Canvas
             authDomain: "chat-app-c7d23.firebaseapp.com",
             projectId: "chat-app-c7d23",
             storageBucket: "chat-app-c7d23.firebasestorage.app",
@@ -305,6 +305,11 @@
             appId: "1:391224761393:web:79b3de2d90813030164910",
             measurementId: "G-XQKWP4BBKQ"
         };
+
+        // Use Canvas's provided Firebase config if available, otherwise use default
+        const firebaseConfig = typeof __firebase_config !== 'undefined'
+            ? JSON.parse(__firebase_config)
+            : defaultFirebaseConfig;
 
         // Global Firebase variables (initialized later)
         let app, db, auth;
@@ -361,7 +366,7 @@
         let confirmationCallback = null;
 
         const adminPanelModal = document.getElementById('admin-panel-modal');
-        const closeAdminModalButton = document.getElementById('close-admin-modal');
+        const closeAdminModalButton = document = document.getElementById('close-admin-modal');
         const adminAddNameInput = document.getElementById('admin-add-name'); // New: Admin Add Name Input
         const adminAddEmailInput = document.getElementById('admin-add-email');
         const adminAddPasswordInput = document.getElementById('admin-add-password');
